@@ -1,20 +1,9 @@
 {
-  "name": "porton",
-  "version": "1.0.0",
-  "description": "an app for home iot",
-  "main": "index.js",
+  "name": "Elastic-Beanstalk-Sample-App",
+  "version": "0.0.1",
+  "private": true,
+  "dependencies": {},
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start":"node index.js"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/jisbruzzi/porton.git"
-  },
-  "author": "jisbruzzi",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/jisbruzzi/porton/issues"
-  },
-  "homepage": "https://github.com/jisbruzzi/porton#readme"
+    "start": "node app.js"
+  }
 }
