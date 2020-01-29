@@ -20,7 +20,7 @@ let ipTerminales={}
 
 function ping(origen,req,res){
     log("ping desde " + origen + " desde la ip " + req.ip)
-    let ip=req.query.ip || req.ip
+    let ip=req.query.ip || "http://"+req.ip
     ipTerminales[origen]=ip;
     res.send("Recibo un mensaje "+origen+" desde " + req.ip + "la ip que almaceno es:"+ ip);
 }
