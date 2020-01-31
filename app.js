@@ -1,7 +1,8 @@
 var port = process.env.PORT || 3000,
     fs = require('fs'),
     util=require("util"),
-    request=util.promisify(require("request"));
+    request=util.promisify(require("request")),
+    net=require("net");
 
 
 var log = function(entry) {
@@ -73,3 +74,28 @@ app.get("/moverOriental",proxySiPuede.bind(null,"oriental","/mover"))
 
 app.listen(port, () => log(`Example app listening on port ${port}!`))
 log('Server running at http://127.0.0.1:' + port + '/');
+
+
+
+
+// ------------------ servidor tcp --------------- //
+let server = net.createServer((connection)=>{
+    log("client connected")
+    connection.on("data",(data)=>{
+        log("recibo del cliente:"+data)
+    })
+    connection.on("end",()=>{
+        log("Se desconecta el cliente")
+    })
+    connection.on("error",(err)=>{
+        log("se detectó un error:"+err)
+    })
+    connection.write("hola! Soy el server :)")
+    setTimeout(()=>connection.end("chau"),5000);
+});
+server.on("error",(err)=>{
+    log(err)
+})
+server.listen(8888,()=>{
+    log("server bound")
+})
