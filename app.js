@@ -1,5 +1,4 @@
-var port = process.env.PORT || 3000,
-    fs = require('fs'),
+let port=3000, fs = require('fs'),
     util=require("util"),
     request=util.promisify(require("request")),
     net=require("net");
@@ -16,62 +15,6 @@ app.set('trust proxy', true)
 
 app.get('/', (req, res) => res.send('Hello World!'))
 
-
-let ipTerminales={}
-
-function ping(origen,req,res){
-    log("ping desde " + origen + " desde la ip " + req.ip)
-    let ip=req.query.ip || "http://"+req.ip
-    ipTerminales[origen]=ip;
-    res.send("Recibo un mensaje "+origen+" desde " + req.ip + "la ip que almaceno es:"+ ip);
-}
-
-app.get("/pingOriental",ping.bind(null,"oriental"))
-app.get("/pingOccidental",ping.bind(null,"occidental"))
-app.get("/estado",async (req,res)=>{
-    let promesas=[]
-    let golpes=[]
-    function agregarPromesa(origen){
-        if(ipTerminales[origen]){
-            let url=ipTerminales[origen]+"/estado";
-            golpes.push(url)
-            promesas.push(request(url))
-        }
-    }
-    agregarPromesa("occidental")
-    agregarPromesa("oriental")
-    let resueltas =[]
-    try{
-        resueltas = await Promise.all(promesas)
-    }catch(e){
-        log(e)
-        res.status(400).send("400: intenté pegarle a:"+ golpes.join(" y además a ") +"" +e+""+ JSON.stringify(e));
-    }
-     
-    if(resueltas.length==0){
-        res.status(400).send("400:No hay ningún terminal registrado, Juan")
-    }
-    let texto=resueltas.map(res=>JSON.stringify(res)).reduce((a,b)=>a+"\n"+b,"")
-    res.send(texto);
-})
-
-async function proxySiPuede(destino,ruta,req,res){
-    if(ipTerminales[destino]){
-        try{
-            let resultado = await request(ipTerminales[destino]+ruta)
-            res.send(JSON.stringify(resultado))
-        }catch(e){
-            log(e)
-            res.status(400).send("400"+e+""+JSON.stringify(e))
-        }
-    }else{
-        res.status(400).send("400:No hay ningún terminal "+destino+" registrado.")
-    }
-}
-app.get("/abrirOccidental",proxySiPuede.bind(null,"occidental","/abrir"))
-app.get("/cerrarOccidental",proxySiPuede.bind(null,"occidental","/cerrar"))
-app.get("/moverOriental",proxySiPuede.bind(null,"oriental","/mover"))
-
 app.listen(port, () => log(`Example app listening on port ${port}!`))
 log('Server running at http://127.0.0.1:' + port + '/');
 
@@ -79,23 +22,110 @@ log('Server running at http://127.0.0.1:' + port + '/');
 
 
 // ------------------ servidor tcp --------------- //
-let server = net.createServer((connection)=>{
-    log("client connected")
-    connection.on("data",(data)=>{
-        log("recibo del cliente:"+data)
-    })
-    connection.on("end",()=>{
-        log("Se desconecta el cliente")
-    })
-    connection.on("error",(err)=>{
-        log("se detectó un error:"+err)
-    })
-    connection.write("hola! Soy el server :)")
-    setTimeout(()=>connection.end("chau"),5000);
-});
-server.on("error",(err)=>{
-    log(err)
-})
-server.listen(8888,()=>{
-    log("server bound")
-})
+const dgram = require('dgram')
+
+let Client=function(localPort){
+    
+    let socket=dgram.createSocket("udp4")
+    let clientAddress=null;
+    let clientPort=null;
+    let onReceive=null;
+    let onError=null;
+    
+    socket.on('error', (err) => {
+        log(`server error:\n${err.stack}`);
+        socket.close();
+        if(onError!=null){
+            onError(err)
+            onError=null;
+        }
+    });
+
+    socket.on('message', (msg, rinfo) => {
+        log(`server got: ${msg} from ${rinfo.address}:${rinfo.port}`)
+        clientAddress=rinfo.address
+        clientPort=rinfo.port
+        log("onReceive is null?" + (onReceive==null?true:false))
+        if(onReceive!=null){
+            log("call on receive")
+            onReceive(msg)
+            onReceive=null;
+        }
+    });
+
+    socket.on('listening', () => {
+        const address = socket.address();
+        log(`server listening ${address.address}:${address.port}`);
+    });
+    
+    socket.bind(localPort);
+    
+
+    function sendMessage(message){
+        if(clientPort==null || clientAddress==null){
+            throw new Error("no se recibió nada todavía")
+        }
+        log(message)
+        log(clientPort)
+        log(clientAddress)
+        socket.send(message,clientPort,clientAddress);
+    }
+
+    function setOnReceive(fn){
+        onReceive=fn;
+    }
+
+    function setOnError(fn){
+        onError=fn;
+    }
+
+    return {
+        sendMessage,
+        setOnReceive,
+        setOnError,
+    };
+}
+
+let communication=(function(){
+    let clients = {}
+    let east="east"
+    let west="west"
+
+    function initialize(){
+        clients[east]=Client(54321)
+        clients[west]=Client(54322)
+    }
+
+    async function sendAndWait(message,clients){
+        async function sendAndWaitOne(client){
+            return new Promise((resolve,reject)=>{
+                try {
+
+                    client.setOnReceive(resolve)
+                    client.setOnError(reject)
+                    client.sendMessage(message)    
+                } catch (error) {
+                    reject(err)
+                }
+            })
+        }
+        log("about to get responses:")
+        let responses = await Promise.allSettled(clients.map(sendAndWaitOne));
+        return JSON.stringify(responses.filter(p=>p.status=="fulfilled").map(p=>p.value.toString("utf8")));
+    }
+
+    initialize();
+    return {
+        abrir:async ()=>await sendAndWait("a",[clients[east]]),
+        cerrar:async ()=>await sendAndWait("c",[clients[east]]),
+        mover:async ()=>await sendAndWait("m",[clients[west]]),
+        estado:async ()=>await sendAndWait("e",[clients[east],clients[west]]),
+    }
+})()
+
+
+
+app.get("/estado",async (req,res)=>res.send(await communication.estado()))
+app.get("/abrir",async (req,res)=>res.send(await communication.abrir()))
+app.get("/cerrar",async (req,res)=>res.send(await communication.cerrar()))
+app.get("/mover",async (req,res)=>res.send(await communication.mover()))
